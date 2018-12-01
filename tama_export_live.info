@@ -1,0 +1,3 @@
+name = TourAmador Export Live Data Feed
+description = Tour Amador calendar events and lists JSON exports 
+core = 7.x

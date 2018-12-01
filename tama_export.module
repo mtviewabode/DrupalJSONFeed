@@ -1,0 +1,159 @@
+<?php
+
+/**
+* @file
+* Module to export Tour Amador calendar events and listings in JSON format.
+*/
+
+/**
+* Implements hook_menu().
+*/
+function tama_export_menu() {
+  $items['tama_export'] = array(
+    'title' => 'Tour Amador Feed',
+    'page callback' => 'tama_export_data',
+    'access arguments' => array('access content'),
+  );
+ 
+  return $items;
+}
+
+/**
+* Custom callback function.
+*/
+function tama_export_data($type) {
+  drupal_json_output();
+  $path = drupal_get_path('module', 'tama_export');
+
+  switch($type) {
+    case 'listings':
+      echo tama_export_process_listings("$path/data/all_basic_pages.xml");
+      break;
+      
+    case 'events':
+      echo tama_export_process_events("$path/data/event_calendar.xml");
+      break;
+
+    default:
+      echo '{"error":"'.$type.' - Parameter not supported."}';
+      break;
+  }
+  
+  drupal_exit();
+}
+
+/*This function does post processing on the xml file:
+first it looks for an empty <Menu-Group> because this would be an administrative entry (such as Privacy Policy)
+which the app doesn't need*/
+/* JD change 2/18:  look for a <Menu-Group> with "Places to Stay" and
+puts that string in the <Categories> item for correct mapping to the app software
+also puts place tag for towns in the <Categories> item, same reason as above
+also changes %amp; to &
+*/
+function tama_export_process_listings($file)
+{
+	$fileContents= file_get_contents($file);
+	$simpleXml = simplexml_load_string($fileContents);
+	$menugroupkey='Menu-Group';
+	$catkey="Categories";
+	$townkey="PlaceTags";
+	$amenitieskey="Amenities";
+	$orig = "&amp;";
+	$replacement = "&";
+
+	$arr_num = 0;
+	$menugroupnum = 0;
+	$nonmenugroupnum = 0;
+	$elementsToRemove = array();
+	
+	
+	foreach ($simpleXml as $xmlobj) {
+		$name = $xmlobj->getName();
+		
+		$menugroupvalue = (string)$xmlobj->$menugroupkey;
+		switch($menugroupvalue) {
+			case NULL:
+				$elementsToRemove[] = $xmlobj; //flag it for removal
+				$nonmenugroupnum++;
+				break;
+			case "Places to Stay":
+				$cat_string = (string)$xmlobj->$catkey;
+				$amenities_string = (string)$xmlobj->$amenitieskey;
+				if ($cat_string == NULL) {
+					$cat_string = $amenities_string;
+				}
+				else {
+					$cat_string .= ",".$amenities_string; //delimit it with a comma
+				}
+					
+				$xmlobj->$catkey = $cat_string;
+				$display_string = $xmlobj->$catkey;
+				$menugroupnum++;
+				break;
+			case "Restaurants":
+				$cat_string = (string)$xmlobj->$catkey;
+				if ($cat_string == NULL) {
+					$cat_string = $menugroupvalue;
+				}
+				else {
+					$cat_string .= ",".$menugroupvalue; //delimit it with a comma
+				}
+					
+				$xmlobj->$catkey = $cat_string;
+				$display_string = $xmlobj->$catkey;
+				$menugroupnum++;
+				break;
+			default:
+				$menugroupnum++;
+				break;
+		}
+		$townvalue = (string)$xmlobj->$townkey;
+		
+		switch ($townvalue) {
+			case NULL:
+				 break;
+			default:
+				$cat_string = $xmlobj->$catkey;
+				if ($cat_string != NULL) {
+					$cat_string .= ", $townvalue"; //delimit it with a commaj
+					$xmlobj->$catkey = $cat_string;  
+				}
+			        else {
+					$xmlobj->$catkey = $townvalue;
+				}
+				break;
+		}
+		$catkeystring = $xmlobj->$catkey;
+		$new_string = str_replace( $orig, $replacement, $catkeystring); //replace &amp; with &
+		$xmlobj->$catkey = $new_string;
+		$arr_num++;
+	}
+  // Delete all of the elements that have no Menu-Group
+	foreach ($elementsToRemove as $xmlobj) {
+		unset($xmlobj[0]);
+	}
+  
+	echo json_encode($simpleXml);
+}
+function tama_export_process_events($file) {
+	$fileContents= file_get_contents($file);
+	$simpleXml = simplexml_load_string($fileContents);
+  return json_encode($simpleXml);
+}
+/**
+ * Implements hook_help().
+ *
+ * Displays help and module information.
+ *
+ * @param path 
+ *   Which path of the site we're using to display help
+ * @param arg 
+ *   Array that holds the current path as returned from arg() function
+ */
+function tama_export_help($path, $arg) {
+  switch ($path) {
+    case "admin/help#tama_export":
+      return '' . t("Exports Tour Amador calendar events and listings.  Used by phone apps.") . '';
+      break;
+  }
+}
